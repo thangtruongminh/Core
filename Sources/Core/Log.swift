@@ -3,7 +3,6 @@ import Foundation
 
 public class Log: AsyncFunctions {
     private static let shared = Log()
-
     enum LogLevel: String {
         case info
         case error
@@ -26,30 +25,47 @@ public class Log: AsyncFunctions {
             }
         }
     }
-    
-    var oldtime : Date = Date()
-    
-    init() {
-        
+    init () {
+        _ = documentsPathURL
     }
+    private lazy var documentsPathURL: URL = {
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        print(url.path)
+        return url
+    }()
+    
+    private var oldtime : Date = Date()
+    private var timer : Timer?
+    private var duration : TimeInterval = 500
+    private var logDataTemp: [LogEntity?] = []
+    var semaphore1 = DispatchSemaphore(value: 1)
     
     private func log(logLevel: LogLevel, file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, items: [Any]) {
         let newtime = Date()
         asyncInSerialQueue {[weak self] _ in
+            guard let self = self else {return}
             let dateTime = newtime.toString()
             let itemString = items.map { String(describing: $0) }.joined(separator: " ")
             let filename = file.split(separator: "/").dropFirst(3).joined(separator: "/")
             let content = itemString.count == 0 ? "" : "\t\(itemString)"
-            let delta = String(describing: newtime.timeIntervalSince(self!.oldtime)).prefix(6)
+            let delta = String(describing: self.oldtime.timeIntervalSince(newtime)).prefix(6)
             let printOutString = "\n\(dateTime)(\(delta))\t\(filename) \(function)(line:\(line - 1)) \(logLevel.indicator)thread: \(thread.name ?? "")\(content)"
             print(printOutString)
-            self?.writeToFile(logLevel: .info, content: printOutString)
-            self?.oldtime = Date()
-            
+            let newLogEntity = LogEntity(date: newtime, content: printOutString)
+            self.semaphore1.wait()
+            self.logDataTemp.append(newLogEntity)
+            self.oldtime = Date()
+            self.writeToFile(logLevel: .info)
+            self.semaphore1.signal()
         }
     }
     
-    private func writeToFile(logLevel: LogLevel, content: String) {
+    private func writeToFile(logLevel: LogLevel) {
+        if let timer = self.timer, timer.isValid {
+            timer.invalidate()
+            self.timer = nil
+        }
+        func writeToFile(content: String) {
             let file = logLevel.logFilePath.path
             guard let data = content.data(using: String.Encoding.utf8) else {return}
 
@@ -63,8 +79,19 @@ public class Log: AsyncFunctions {
             fileHandle?.seekToEndOfFile()
             fileHandle?.write(data)
             fileHandle?.closeFile()
+        }
+        timer = Timer.scheduledTimer(
+            withTimeInterval: duration / 1000, repeats: false, block: { [weak self] _ in
+                guard let self = self else {return}
+                let logdata = self.logDataTemp
+                self.logDataTemp.removeAll()
+                let content = logdata.filter{$0 != nil}.sorted{ $0!.date < $1!.date}.reduce("") { result, logEntity in
+                    result + logEntity!.content + "\n"
+                }
+                writeToFile(content: content)
+            })
     }
-    
+
     
     
     public static func info(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, content: String = "") {
@@ -88,5 +115,19 @@ public class Log: AsyncFunctions {
     }
     public static func success(file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, content: String = "") {
         Log.shared.log(logLevel: .success , file: file, function: function, line: line , items: [content])
+    }
+}
+
+struct LogEntity {
+    var date : Date = Date()
+    var content: String = ""
+}
+
+extension LogEntity {
+    static func > (left: LogEntity, right: LogEntity) -> Bool {
+        return left.date > right.date
+    }
+    static func < (left: LogEntity, right: LogEntity) -> Bool {
+        return left.date < right.date
     }
 }

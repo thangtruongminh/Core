@@ -8,7 +8,7 @@
 
 
 import XCTest
-@testable import Log
+@testable import Core
 
 final class DateConvertTests: XCTestCase {
     func testExample() {

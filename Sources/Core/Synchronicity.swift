@@ -5,7 +5,7 @@ protocol AsyncFunctions: AnyObject { }
 extension AsyncFunctions {
     
     func asyncInSerialQueue(label: String = #function, _ code: @escaping (Self) -> ()) {
-        DispatchQueue(label:"com.bigzero.\(label)").sync { [weak self] in
+        DispatchQueue(label:"com.bigzero.\(label)",attributes: .concurrent).async { [weak self] in
             guard let self = self else { return }
             code(self)
         }
