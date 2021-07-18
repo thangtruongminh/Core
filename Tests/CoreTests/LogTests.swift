@@ -3,9 +3,8 @@
     
     final class LogTests: XCTestCase {
         func testExample() {
-            // This is an example of a functional test case.
-            // Use XCTAssert and related functions to verify your tests produce the correct
-            // results.
+            Log.info()
+
         }
         func testPerformanceExample() throws {
             // This is an example of a performance test case.
@@ -14,14 +13,28 @@
                 let expectation = XCTestExpectation(description: "Update store profile")
 
                 (0...1000).forEach { num in
+                    switch num % 3 {
+                    case 0 :
+                        Log.info(items: [num]) {
+                            expectation.fulfill()
+                        }
+                    case 1:
+                        Log.error(items: [num]) {
+                            expectation.fulfill()
+                        }
+                    case 2:
+                        Log.success(items: [num]) {
+                            expectation.fulfill()
+                        }
+                    default:
+                        return
+                    }
                     
-                        Log.info(items: [num])
                 }
-                print(Thread.current)
                 (0...1000).forEach{
                     print($0)
                 }
-                wait(for: [expectation], timeout: 5.0)
+                wait(for: [expectation], timeout: 20.0)
                 
             }
         }

@@ -2,17 +2,25 @@
 import Foundation
 
 public class Log: AsyncFunctions {
-    private static let shared = Log()
-    enum LogLevel: String {
+    static let shared                           = Log()
+    private let dateString                      : String
+    private let documentsURL                    : URL
+    private let dateFormatter                   : DateFormatter
+    private var oldtime                         : Date = Date()
+    private var duration                        : TimeInterval = 300
+    private var logDataTemp                     : Dictionary<LogLevel,[LogEntity]> = [:]
+    private var logFilePathDict                 : Dictionary<LogLevel, String>     = [:]
+    private var timerDict                       : Dictionary<LogLevel, Timer>      = [:]
+    private var semaphore1                      = DispatchSemaphore(value: 1)
+
+    private enum LogLevel: String {
         case info
         case error
         case success
-        var logFilePath: URL {
-            let documentsPathURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-            let logLevelName = self.rawValue.capitalizingFirstLetter()
-            let dateString = Date().toString(format: "yyyyMMdd")
-            let filename = logLevelName + dateString + ".txt"
-            return documentsPathURL.appendingPathComponent(filename)
+        func getPath(documentsURL: URL, dateString: String) -> String {
+            let logLevelName = self.rawValue
+            let filename = "Log_" + logLevelName + dateString + ".txt"
+            return documentsURL.appendingPathComponent(filename).path
         }
         var indicator: String {
             switch self {
@@ -25,96 +33,91 @@ public class Log: AsyncFunctions {
             }
         }
     }
-    init () {
-        _ = documentsPathURL
+    private init () {
+        self.dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        dateString = dateFormatter.string(from: Date())
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZ"
+        dateFormatter.locale = NSLocale.system
+        documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        print("DocumentPath: " , documentsURL.path)
     }
-    private lazy var documentsPathURL: URL = {
-        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        print(url.path)
-        return url
-    }()
     
-    private var oldtime : Date = Date()
-    private var timer : Timer?
-    private var duration : TimeInterval = 500
-    private var logDataTemp: [LogEntity?] = []
-    var semaphore1 = DispatchSemaphore(value: 1)
-    
-    private func log(logLevel: LogLevel, file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, items: [Any]) {
+
+
+    private func log(logLevel: LogLevel, file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, items: [Any], completion: (()-> Void)? = nil) {
         let newtime = Date()
-        asyncInSerialQueue {[weak self] _ in
+        async(attributes: .concurrent) {[weak self] _ in
             guard let self = self else {return}
-            let dateTime = newtime.toString()
-            let itemString = items.map { String(describing: $0) }.joined(separator: " ")
-            let filename = file.split(separator: "/").dropFirst(3).joined(separator: "/")
-            let content = itemString.count == 0 ? "" : "\t\(itemString)"
-            let delta = String(describing: self.oldtime.timeIntervalSince(newtime)).prefix(6)
-            let printOutString = "\n\(dateTime)(\(delta))\t\(filename) \(function)(line:\(line - 1)) \(logLevel.indicator)thread: \(thread.name ?? "")\(content)"
+            func createPrintOutString() -> String {
+                let dateTime = self.dateFormatter.string(from: newtime)
+                let itemString = items.map { String(describing: $0) }.joined(separator: " ")
+                let filename = file.split(separator: "/").dropFirst(3).joined(separator: "/")
+                let content = itemString.count == 0 ? "" : "\t\(itemString)"
+                let delta = String(describing: self.oldtime.timeIntervalSince(newtime)).prefix(6)
+                return "\n\(dateTime)(\(delta))\t\(filename) \(function)(line:\(line - 1)) \(logLevel.indicator) \(thread.isMainThread ? "MainThread": "") \(content)"
+            }
+            let printOutString = createPrintOutString()
             print(printOutString)
             let newLogEntity = LogEntity(date: newtime, content: printOutString)
             self.semaphore1.wait()
-            self.logDataTemp.append(newLogEntity)
+            if self.logDataTemp[logLevel] == nil {
+                self.logDataTemp[logLevel] = []
+            }
+            self.logDataTemp[logLevel]?.append(newLogEntity)
             self.oldtime = Date()
-            self.writeToFile(logLevel: .info)
+            self.writeToFile(logLevel: logLevel, completion: completion)
             self.semaphore1.signal()
         }
     }
     
-    private func writeToFile(logLevel: LogLevel) {
-        if let timer = self.timer, timer.isValid {
-            timer.invalidate()
-            self.timer = nil
-        }
-        func writeToFile(content: String) {
-            let file = logLevel.logFilePath.path
-            guard let data = content.data(using: String.Encoding.utf8) else {return}
-
-            if FileManager.default.fileExists(atPath: file) == false {
-                print(file, "is creating....")
-                if FileManager.default.createFile(atPath: file, contents: nil, attributes: nil) {
-                    print(file, "is created")
-                }
+    private func writeToFile(logLevel: LogLevel, completion: (()-> Void)? = nil) {
+        DispatchQueue.main.async {
+            if let timer = self.timerDict[logLevel], timer.isValid {
+                timer.invalidate()
             }
-            let fileHandle = FileHandle(forWritingAtPath: file)
-            fileHandle?.seekToEndOfFile()
-            fileHandle?.write(data)
-            fileHandle?.closeFile()
+            self.timerDict[logLevel] = Timer.scheduledTimer(
+                withTimeInterval: self.duration / 1000, repeats: false, block: { [weak self] _ in
+                    guard let self = self else {return}
+                    let logdata = self.logDataTemp[logLevel]
+                    self.logDataTemp[logLevel]?.removeAll()
+                    let content = logdata?.sorted{ $0.date < $1.date}.reduce("") { result, logEntity in
+                        result + logEntity.content + "\n"
+                    }
+                    if self.logFilePathDict[logLevel] == nil {
+                        self.logFilePathDict[logLevel] = logLevel.getPath(documentsURL: self.documentsURL, dateString: self.dateString)
+                    }
+                    content?.writeToFile(path: self.logFilePathDict[logLevel]!)
+                    completion?()
+                })
         }
-        timer = Timer.scheduledTimer(
-            withTimeInterval: duration / 1000, repeats: false, block: { [weak self] _ in
-                guard let self = self else {return}
-                let logdata = self.logDataTemp
-                self.logDataTemp.removeAll()
-                let content = logdata.filter{$0 != nil}.sorted{ $0!.date < $1!.date}.reduce("") { result, logEntity in
-                    result + logEntity!.content + "\n"
-                }
-                writeToFile(content: content)
-            })
+        
+    }
+    
+    public static func info(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, completion: (()-> Void)? = nil) {
+        Log.shared.log(logLevel: .info, file: file, function: function, line: line, items: [""], completion: completion)
+    }
+    public static func info(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, _ content: String, completion: (()-> Void)? = nil) {
+        Log.shared.log(logLevel: .info, file: file, function: function, line: line, items: [content], completion: completion)
+    }
+    
+    public static func info(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, items: [Any], completion: (()-> Void)? = nil) {
+        Log.shared.log(logLevel: .info, file: file, function: function, line: line, items: items, completion: completion)
     }
 
     
-    
-    public static func info(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, content: String = "") {
-        Log.shared.log(logLevel: .info, file: file, function: function, line: line , items: [content])
+    public static func error(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, items: [Any], completion: (()-> Void)? = nil) {
+        Log.shared.log(logLevel: .error, file: file, function: function, line: line, items: items, completion: completion)
     }
     
-    public static func info(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, items: [Any]) {
-        Log.shared.log(logLevel: .info, file: file, function: function, line: line , items: items)
+    public static func error(file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, _ content: String, completion: (()-> Void)? = nil) {
+        Log.shared.log(logLevel: .error , file: file, function: function, line: line, items: [content], completion: completion)
     }
-
-    
-    public static func error(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, items: [Any]) {
-        Log.shared.log(logLevel: .error, file: file, function: function, line: line , items: items)
+    public static func success(file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, items: [Any], completion: (()-> Void)? = nil) {
+        Log.shared.log(logLevel: .success , file: file, function: function, line: line, items: items, completion: completion)
     }
-    
-    public static func error(file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, content: String = "") {
-        Log.shared.log(logLevel: .error , file: file, function: function, line: line , items: [content])
-    }
-    public static func success(file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, items: [Any]) {
-        Log.shared.log(logLevel: .success , file: file, function: function, line: line , items: items)
-    }
-    public static func success(file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, content: String = "") {
-        Log.shared.log(logLevel: .success , file: file, function: function, line: line , items: [content])
+    public static func success(file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, _ content: String, completion: (()-> Void)? = nil) {
+        Log.shared.log(logLevel: .success , file: file, function: function, line: line, items: [content], completion: completion)
     }
 }
 

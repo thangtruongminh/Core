@@ -1,11 +1,11 @@
 import Foundation
 
-protocol AsyncFunctions: AnyObject { }
+public protocol AsyncFunctions: AnyObject { }
 
-extension AsyncFunctions {
+public extension AsyncFunctions {
     
-    func asyncInSerialQueue(label: String = #function, _ code: @escaping (Self) -> ()) {
-        DispatchQueue(label:"com.bigzero.\(label)",attributes: .concurrent).async { [weak self] in
+    func async(label: String = #function, attributes: DispatchQueue.Attributes = [], _ code: @escaping (Self) -> ()) {
+        DispatchQueue(label:"com.bigzero.\(label)",attributes: attributes).async { [weak self] in
             guard let self = self else { return }
             code(self)
         }
