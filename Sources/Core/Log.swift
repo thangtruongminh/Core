@@ -31,6 +31,8 @@ public class Log: AsyncFunctions {
                 return "✅"
             case .error:
                 return "🔴"
+            case .usedMemory:
+                return "💿"
             }
         }
     }
@@ -126,7 +128,7 @@ public class Log: AsyncFunctions {
         Log.shared.log(logLevel: .success , file: file, function: function, line: line, thread: thread, items: [content], completion: completion)
     }
     
-    public static func success<R: Codable>(file: String = #file, function: String = #function, line: Int = #line, column: Int = #column, thread: Thread = Thread.current, request: URLRequest, parameters: JSON? = nil, response: R, completion: (()-> Void)? = nil) {
+    public static func requestSuccess<R: Codable>(file: String = #file, function: String = #function, line: Int = #line, column: Int = #column, thread: Thread = Thread.current, request: URLRequest, parameters: JSON? = nil, response: R, completion: (()-> Void)? = nil) {
         let method = String(describing:request.httpMethod)
         var headers = ""
         do {
@@ -152,7 +154,7 @@ public class Log: AsyncFunctions {
             Log.error(items: ["parse responseString:", error.localizedDescription])
         }
         let logInfo = """
-        ✅Success Method ⇢ \(method)) ⚡️ URL ⇢ \(url)
+        Success Method ⇢ \(method)) ⚡️ URL ⇢ \(url)
         ✨Header ⇢ \(headers)
         ✨Parameters ⇢ \(parametersString)
         ✨Response ⇢ \(responseString)
@@ -161,7 +163,7 @@ public class Log: AsyncFunctions {
         
     }
     
-    public static func errorRequest(file: String = #file, function: String = #function, line: Int = #line, column: Int = #column, thread: Thread = Thread.current, request: URLRequest, parameters: JSON? = nil, error: Error, completion: (()-> Void)? = nil) {
+    public static func requestError(file: String = #file, function: String = #function, line: Int = #line, column: Int = #column, thread: Thread = Thread.current, request: URLRequest, parameters: JSON? = nil, error: Error, completion: (()-> Void)? = nil) {
         let method = String(describing:request.httpMethod)
         var headers = ""
         do {
@@ -177,11 +179,9 @@ public class Log: AsyncFunctions {
             Log.error(items: ["parse parametersString:", error.localizedDescription])
         }
         let url = request.url?.absoluteString ?? ""
-        var responseString: String = ""
-        
        
         let logInfo = """
-        ✅Success Method ⇢ \(method)) ⚡️ URL ⇢ \(url)
+        Failure Method ⇢ \(method)) ⚡️ URL ⇢ \(url)
         ✨Header ⇢ \(headers)
         ✨Parameters ⇢ \(parametersString)
         ✨Error ⇢ \(error.localizedDescription)
