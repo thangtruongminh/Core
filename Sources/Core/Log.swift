@@ -98,7 +98,9 @@ public class Log: AsyncFunctions {
         }
         
     }
-    public func infoUsedMemory(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, srcId: String, completion: (()-> Void)? = nil) {
+    private func infoUsedMemory(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, srcId: String, completion: (()-> Void)? = nil) {
+        let usedMemory = self.getUsedMemorySize()
+        let newtime = Date()
         async(attributes: .concurrent) {[weak self] _ in
             guard let self = self else {return}
             func createPrintOutString() -> String {
@@ -109,9 +111,8 @@ public class Log: AsyncFunctions {
                 let delta = String(describing: self.oldtime.timeIntervalSince(newtime)).prefix(6)
                 return "\n\(dateTime)(\(delta))\t\(filename) \(function)(line:\(line - 1)) \(logLevel.indicator) \(thread.isMainThread ? "MainThread": "") \(content)"
             }
-            let usedMemory = self.getUsedMemorySize()
+            
             let logLevel = LogLevel.usedMemory
-            let newtime = Date()
             let items = ["srcId:", srcId, "usedMemory:", usedMemory, "KB","(\(usedMemory - Log.shared.previousMemory))"] as [Any]
             let printOutString = createPrintOutString()
             print(printOutString)
@@ -126,7 +127,10 @@ public class Log: AsyncFunctions {
             self.writeToFile(logLevel: logLevel, completion: completion)
             self.semaphore1.signal()
         }
-
+    }
+    
+    public static func infoUsedMemory(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, srcId: String, completion: (()-> Void)? = nil) {
+        Log.shared.infoUsedMemory(file: file, function: function, line: line, thread: thread, srcId: srcId, completion:completion)
     }
     
     public static func info(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, completion: (()-> Void)? = nil) {
