@@ -186,7 +186,7 @@ public class Log: AsyncFunctions {
         ✨Parameters ⇢ \(parametersString)
         ✨Error ⇢ \(error.localizedDescription)
         """
-        Log.success(file: file, function: function, line: line, thread: thread, logInfo, completion: completion)
+        Log.error(file: file, function: function, line: line, thread: thread, logInfo, completion: completion)
     }
 }
 
