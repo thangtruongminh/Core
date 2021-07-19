@@ -1,6 +1,6 @@
 
 import Foundation
-
+public typealias JSON = [String: Any]
 public class Log: AsyncFunctions {
     static let shared                           = Log()
     private let dateString                      : String
@@ -17,6 +17,7 @@ public class Log: AsyncFunctions {
         case info
         case error
         case success
+        case usedMemory
         func getPath(documentsURL: URL, dateString: String) -> String {
             let logLevelName = self.rawValue
             let filename = "Log_" + logLevelName + dateString + ".txt"
@@ -93,31 +94,99 @@ public class Log: AsyncFunctions {
         }
         
     }
+    public static func infoUsedMemory(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, completion: (()-> Void)? = nil, srcId: String, usedMemory: UInt64) {
+        
+        Log.shared.log(logLevel: .usedMemory, file: file, function: function, line: line, thread: thread, items: ["srcId:", srcId, "usedMemory:", usedMemory, "KB"], completion: completion)
+
+    }
     
     public static func info(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, completion: (()-> Void)? = nil) {
-        Log.shared.log(logLevel: .info, file: file, function: function, line: line, items: [""], completion: completion)
+        Log.shared.log(logLevel: .info, file: file, function: function, line: line, thread: thread, items: [""], completion: completion)
     }
     public static func info(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, _ content: String, completion: (()-> Void)? = nil) {
-        Log.shared.log(logLevel: .info, file: file, function: function, line: line, items: [content], completion: completion)
+        Log.shared.log(logLevel: .info, file: file, function: function, line: line, thread: thread, items: [content], completion: completion)
     }
     
     public static func info(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, items: [Any], completion: (()-> Void)? = nil) {
-        Log.shared.log(logLevel: .info, file: file, function: function, line: line, items: items, completion: completion)
+        Log.shared.log(logLevel: .info, file: file, function: function, line: line, thread: thread, items: items, completion: completion)
     }
 
     
     public static func error(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, items: [Any], completion: (()-> Void)? = nil) {
-        Log.shared.log(logLevel: .error, file: file, function: function, line: line, items: items, completion: completion)
+        Log.shared.log(logLevel: .error, file: file, function: function, line: line, thread: thread, items: items, completion: completion)
     }
     
     public static func error(file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, _ content: String, completion: (()-> Void)? = nil) {
-        Log.shared.log(logLevel: .error , file: file, function: function, line: line, items: [content], completion: completion)
+        Log.shared.log(logLevel: .error , file: file, function: function, line: line, thread: thread, items: [content], completion: completion)
     }
     public static func success(file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, items: [Any], completion: (()-> Void)? = nil) {
-        Log.shared.log(logLevel: .success , file: file, function: function, line: line, items: items, completion: completion)
+        Log.shared.log(logLevel: .success , file: file, function: function, line: line, thread: thread, items: items, completion: completion)
     }
     public static func success(file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, _ content: String, completion: (()-> Void)? = nil) {
-        Log.shared.log(logLevel: .success , file: file, function: function, line: line, items: [content], completion: completion)
+        Log.shared.log(logLevel: .success , file: file, function: function, line: line, thread: thread, items: [content], completion: completion)
+    }
+    
+    public static func success<R: Codable>(file: String = #file, function: String = #function, line: Int = #line, column: Int = #column, thread: Thread = Thread.current, request: URLRequest, parameters: JSON? = nil, response: R, completion: (()-> Void)? = nil) {
+        let method = String(describing:request.httpMethod)
+        var headers = ""
+        do {
+            headers = try request.allHTTPHeaderFields?.toJsonString() ?? ""
+        } catch {
+            Log.error(items: ["parse headers:", error.localizedDescription])
+        }
+        
+        var parametersString = ""
+        do {
+            parametersString = try parameters?.toJsonString() ?? ""
+        } catch {
+            Log.error(items: ["parse parametersString:", error.localizedDescription])
+        }
+        let url = request.url?.absoluteString ?? ""
+        var responseString: String = ""
+        
+        do {
+            let dict = try response.toDictionary()
+            responseString = try dict.toJsonString()
+            
+        } catch {
+            Log.error(items: ["parse responseString:", error.localizedDescription])
+        }
+        let logInfo = """
+        ✅Success Method ⇢ \(method)) ⚡️ URL ⇢ \(url)
+        ✨Header ⇢ \(headers)
+        ✨Parameters ⇢ \(parametersString)
+        ✨Response ⇢ \(responseString)
+        """
+        Log.success(file: file, function: function, line: line, thread: thread, logInfo, completion: completion)
+        
+    }
+    
+    public static func errorRequest(file: String = #file, function: String = #function, line: Int = #line, column: Int = #column, thread: Thread = Thread.current, request: URLRequest, parameters: JSON? = nil, error: Error, completion: (()-> Void)? = nil) {
+        let method = String(describing:request.httpMethod)
+        var headers = ""
+        do {
+            headers = try request.allHTTPHeaderFields?.toJsonString() ?? ""
+        } catch {
+            Log.error(items: ["parse headers:", error.localizedDescription])
+        }
+        
+        var parametersString = ""
+        do {
+            parametersString = try parameters?.toJsonString() ?? ""
+        } catch {
+            Log.error(items: ["parse parametersString:", error.localizedDescription])
+        }
+        let url = request.url?.absoluteString ?? ""
+        var responseString: String = ""
+        
+       
+        let logInfo = """
+        ✅Success Method ⇢ \(method)) ⚡️ URL ⇢ \(url)
+        ✨Header ⇢ \(headers)
+        ✨Parameters ⇢ \(parametersString)
+        ✨Error ⇢ \(error.localizedDescription)
+        """
+        Log.success(file: file, function: function, line: line, thread: thread, logInfo, completion: completion)
     }
 }
 

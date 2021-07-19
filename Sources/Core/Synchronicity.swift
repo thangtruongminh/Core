@@ -20,13 +20,13 @@ public extension AsyncFunctions {
         let semaphore1 = DispatchSemaphore(value: 0)
         let semaphore2 = DispatchSemaphore(value: 0)
 
-        DispatchQueue(label: "execute-1").async {
+        DispatchQueue(label: #function+"execute-1").async {
             do { result1 = .success(try f()) }
             catch { result1 = .failure(error) }
             semaphore1.signal()
         }
 
-        DispatchQueue(label: "execute-2").async {
+        DispatchQueue(label: #function+"execute-2").async {
             do { result2 = .success(try g()) }
             catch { result2 = .failure(error) }
             semaphore2.signal()
