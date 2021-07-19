@@ -113,7 +113,7 @@ public class Log: AsyncFunctions {
             }
             
             let logLevel = LogLevel.usedMemory
-            let items = ["srcId:", srcId, "usedMemory:", usedMemory, "KB","(\(usedMemory - Log.shared.previousMemory))"] as [Any]
+            let items = ["srcId:", srcId, "usedMemory:", usedMemory, "KB","(\(usedMemory - self.previousMemory))"] as [Any]
             let printOutString = createPrintOutString()
             print(printOutString)
             let newLogEntity = LogEntity(date: newtime, content: printOutString)
