@@ -12,6 +12,7 @@ public class Log: AsyncFunctions {
     private var logFilePathDict                 : Dictionary<LogLevel, String>     = [:]
     private var timerDict                       : Dictionary<LogLevel, Timer>      = [:]
     private var semaphore1                      = DispatchSemaphore(value: 1)
+    private var previousMemory                  : UInt64!
 
     private enum LogLevel: String {
         case info
@@ -44,6 +45,7 @@ public class Log: AsyncFunctions {
         dateFormatter.locale = NSLocale.system
         documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         print("DocumentPath: " , documentsURL.path)
+        previousMemory = getUsedMemorySize()
     }
     
 
@@ -96,9 +98,9 @@ public class Log: AsyncFunctions {
         }
         
     }
-    public static func infoUsedMemory(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, completion: (()-> Void)? = nil, srcId: String, usedMemory: UInt64) {
-        
-        Log.shared.log(logLevel: .usedMemory, file: file, function: function, line: line, thread: thread, items: ["srcId:", srcId, "usedMemory:", usedMemory, "KB"], completion: completion)
+    public static func infoUsedMemory(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, srcId: String, completion: (()-> Void)? = nil) {
+        let usedMemory: UInt64 = Log.shared.getUsedMemorySize()
+        Log.shared.log(logLevel: .usedMemory, file: file, function: function, line: line, thread: thread, items: ["srcId:", srcId, "usedMemory:", usedMemory, "KB","(\(usedMemory - Log.shared.previousMemory))"], completion: completion)
 
     }
     
@@ -149,7 +151,6 @@ public class Log: AsyncFunctions {
         do {
             let dict = try response.toDictionary()
             responseString = try dict.toJsonString()
-            
         } catch {
             Log.error(items: ["parse responseString:", error.localizedDescription])
         }
@@ -187,6 +188,25 @@ public class Log: AsyncFunctions {
         ✨Error ⇢ \(error.localizedDescription)
         """
         Log.error(file: file, function: function, line: line, thread: thread, logInfo, completion: completion)
+    }
+    
+    private func getUsedMemorySize() -> UInt64 {
+        // タスク情報からメモリ情報を取得
+        var taskInfo = mach_task_basic_info()
+        var count = UInt32(MemoryLayout.size(ofValue: taskInfo) / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &taskInfo) {
+            task_info(
+                mach_task_self_,
+                task_flavor_t(MACH_TASK_BASIC_INFO),
+                $0.withMemoryRebound(
+                    to: Int32.self,
+                    capacity: 1, {pointer in UnsafeMutablePointer<Int32>(pointer)}
+                ),
+                &count
+            )
+        }
+        // KBにして返す
+        return result == KERN_SUCCESS ? taskInfo.resident_size / 1024: 0
     }
 }
 

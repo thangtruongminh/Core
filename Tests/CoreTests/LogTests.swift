@@ -3,7 +3,11 @@
     
     final class LogTests: XCTestCase {
         func testExample() {
-            Log.info()
+            let expectation = XCTestExpectation(description: "Update store profile")
+            Log.infoUsedMemory(srcId: "LogTests"){
+                expectation.fulfill()
+            }
+            wait(for: [expectation], timeout: 20.0)
 
         }
         func testPerformanceExample() throws {
