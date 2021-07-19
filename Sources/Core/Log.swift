@@ -12,8 +12,8 @@ public class Log: AsyncFunctions {
     private var logFilePathDict                 : Dictionary<LogLevel, String>     = [:]
     private var timerDict                       : Dictionary<LogLevel, Timer>      = [:]
     private var semaphore1                      = DispatchSemaphore(value: 1)
-    private var previousMemory                  : UInt64!
-
+    private var previousMemory                  : Double!
+    private let formatter                       : ByteCountFormatter
     private enum LogLevel: String {
         case info
         case error
@@ -45,11 +45,17 @@ public class Log: AsyncFunctions {
         dateFormatter.locale = NSLocale.system
         documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         print("DocumentPath: " , documentsURL.path)
-        previousMemory = getUsedMemorySize()
+        formatter = ByteCountFormatter()
+        formatter.allowedUnits = .useAll
+        formatter.countStyle = .file
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        
+        previousMemory = Double(getUsedMemorySize())
     }
     
-
-
+    
+    
     private func log(logLevel: LogLevel, file: String = #file, function: String = #function, line: Int = #line, thread: Thread = Thread.current, items: [Any], completion: (()-> Void)? = nil) {
         let newtime = Date()
         async(attributes: .concurrent) {[weak self] _ in
@@ -59,7 +65,7 @@ public class Log: AsyncFunctions {
                 let itemString = items.map { String(describing: $0) }.joined(separator: " ")
                 let filename = file.split(separator: "/").dropFirst(3).joined(separator: "/")
                 let content = itemString.count == 0 ? "" : "\t\(itemString)"
-                let delta = String(describing: self.oldtime.timeIntervalSince(newtime)).prefix(6)
+                let delta = String(describing: newtime.timeIntervalSince(self.oldtime)).prefix(6)
                 return "\n\(dateTime)(\(delta))\t\(filename) \(function)(line:\(line - 1)) \(logLevel.indicator) \(thread.isMainThread ? "MainThread": "") \(content)"
             }
             let printOutString = createPrintOutString()
@@ -71,6 +77,37 @@ public class Log: AsyncFunctions {
             }
             self.logDataTemp[logLevel]?.append(newLogEntity)
             self.oldtime = Date()
+            self.writeToFile(logLevel: logLevel, completion: completion)
+            self.semaphore1.signal()
+        }
+    }
+    
+    private func infoUsedMemory(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, srcId: String, completion: (()-> Void)? = nil) {
+        let usedMemory : Double = Double(self.getUsedMemorySize())
+        let newtime = Date()
+        async(attributes: .concurrent) {[weak self] _ in
+            guard let self = self else {return}
+            func createPrintOutString() -> String {
+                let dateTime = self.dateFormatter.string(from: newtime)
+                let itemString = items.map { String(describing: $0) }.joined(separator: " ")
+                let filename = file.split(separator: "/").dropFirst(4).joined(separator: "/")
+                let content = itemString.count == 0 ? "" : "\t\(itemString)"
+                let delta = String(describing: newtime.timeIntervalSince(self.oldtime)).prefix(6)
+                return "\n\(dateTime)(\(delta))\t\(filename) \(function)(line:\(line - 1)) \(logLevel.indicator) \(thread.isMainThread ? "MainThread": "") \(content)"
+            }
+            
+            let logLevel = LogLevel.usedMemory
+            let items = ["srcId:", srcId, "usedMemory:", self.formatter.string(fromByteCount: Int64(usedMemory)) ,"(\(self.formatter.string(fromByteCount:Int64(usedMemory - self.previousMemory))))"] as [Any]
+            let printOutString = createPrintOutString()
+            print(printOutString)
+            let newLogEntity = LogEntity(date: newtime, content: printOutString)
+            self.semaphore1.wait()
+            if self.logDataTemp[logLevel] == nil {
+                self.logDataTemp[logLevel] = []
+            }
+            self.logDataTemp[logLevel]?.append(newLogEntity)
+            self.previousMemory = usedMemory
+            
             self.writeToFile(logLevel: logLevel, completion: completion)
             self.semaphore1.signal()
         }
@@ -98,36 +135,6 @@ public class Log: AsyncFunctions {
         }
         
     }
-    private func infoUsedMemory(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, srcId: String, completion: (()-> Void)? = nil) {
-        let usedMemory = self.getUsedMemorySize()
-        let newtime = Date()
-        async(attributes: .concurrent) {[weak self] _ in
-            guard let self = self else {return}
-            func createPrintOutString() -> String {
-                let dateTime = self.dateFormatter.string(from: newtime)
-                let itemString = items.map { String(describing: $0) }.joined(separator: " ")
-                let filename = file.split(separator: "/").dropFirst(3).joined(separator: "/")
-                let content = itemString.count == 0 ? "" : "\t\(itemString)"
-                let delta = String(describing: self.oldtime.timeIntervalSince(newtime)).prefix(6)
-                return "\n\(dateTime)(\(delta))\t\(filename) \(function)(line:\(line - 1)) \(logLevel.indicator) \(thread.isMainThread ? "MainThread": "") \(content)"
-            }
-            
-            let logLevel = LogLevel.usedMemory
-            let items = ["srcId:", srcId, "usedMemory:", usedMemory, "KB","(\(usedMemory - self.previousMemory))"] as [Any]
-            let printOutString = createPrintOutString()
-            print(printOutString)
-            let newLogEntity = LogEntity(date: newtime, content: printOutString)
-            self.semaphore1.wait()
-            if self.logDataTemp[logLevel] == nil {
-                self.logDataTemp[logLevel] = []
-            }
-            self.logDataTemp[logLevel]?.append(newLogEntity)
-            self.previousMemory = usedMemory
-
-            self.writeToFile(logLevel: logLevel, completion: completion)
-            self.semaphore1.signal()
-        }
-    }
     
     public static func infoUsedMemory(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, srcId: String, completion: (()-> Void)? = nil) {
         Log.shared.infoUsedMemory(file: file, function: function, line: line, thread: thread, srcId: srcId, completion:completion)
@@ -143,7 +150,7 @@ public class Log: AsyncFunctions {
     public static func info(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, items: [Any], completion: (()-> Void)? = nil) {
         Log.shared.log(logLevel: .info, file: file, function: function, line: line, thread: thread, items: items, completion: completion)
     }
-
+    
     
     public static func error(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, items: [Any], completion: (()-> Void)? = nil) {
         Log.shared.log(logLevel: .error, file: file, function: function, line: line, thread: thread, items: items, completion: completion)
@@ -192,8 +199,7 @@ public class Log: AsyncFunctions {
         Log.success(file: file, function: function, line: line, thread: thread, logInfo, completion: completion)
         
     }
-    
-    public static func requestError(file: String = #file, function: String = #function, line: Int = #line, column: Int = #column, thread: Thread = Thread.current, request: URLRequest, parameters: JSON? = nil, error: Error, completion: (()-> Void)? = nil) {
+    public static func requestError(file: String = #file, function: String = #function, line: Int = #line, column: Int = #column, thread: Thread = Thread.current, request: URLRequest, parameters: JSON? = nil, dataError: Data?, error: Error?, completion: (()-> Void)? = nil) {
         let method = String(describing:request.httpMethod)
         var headers = ""
         do {
@@ -209,33 +215,40 @@ public class Log: AsyncFunctions {
             Log.error(items: ["parse parametersString:", error.localizedDescription])
         }
         let url = request.url?.absoluteString ?? ""
-       
+        var responseString = ""
+        if let dataError = dataError {
+            responseString = String(data: dataError, encoding: .utf8) ?? ""
+        }
         let logInfo = """
         Failure Method ⇢ \(method)) ⚡️ URL ⇢ \(url)
         ✨Header ⇢ \(headers)
         ✨Parameters ⇢ \(parametersString)
-        ✨Error ⇢ \(error.localizedDescription)
+        ✨Response ⇢ \(responseString)
+        ✨Error ⇢ \(error?.localizedDescription ?? "")
         """
         Log.error(file: file, function: function, line: line, thread: thread, logInfo, completion: completion)
     }
     
-    private func getUsedMemorySize() -> UInt64 {
-        // タスク情報からメモリ情報を取得
-        var taskInfo = mach_task_basic_info()
-        var count = UInt32(MemoryLayout.size(ofValue: taskInfo) / MemoryLayout<integer_t>.size)
-        let result = withUnsafeMutablePointer(to: &taskInfo) {
-            task_info(
-                mach_task_self_,
-                task_flavor_t(MACH_TASK_BASIC_INFO),
-                $0.withMemoryRebound(
-                    to: Int32.self,
-                    capacity: 1, {pointer in UnsafeMutablePointer<Int32>(pointer)}
-                ),
-                &count
-            )
+    func getUsedMemorySize() -> UInt64 {
+        // The `TASK_VM_INFO_COUNT` and `TASK_VM_INFO_REV1_COUNT` macros are too
+        // complex for the Swift C importer, so we have to define them ourselves.
+        let TASK_VM_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let TASK_VM_INFO_REV1_COUNT = mach_msg_type_number_t(MemoryLayout.offset(of: \task_vm_info_data_t.min_address)! / MemoryLayout<integer_t>.size)
+        var info = task_vm_info_data_t()
+        var count = TASK_VM_INFO_COUNT
+        let kr = withUnsafeMutablePointer(to: &info) { infoPtr in
+            infoPtr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intPtr in
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), intPtr, &count)
+            }
         }
-        // KBにして返す
-        return result == KERN_SUCCESS ? taskInfo.resident_size / 1024: 0
+        guard
+            kr == KERN_SUCCESS,
+            count >= TASK_VM_INFO_REV1_COUNT
+        else { return 0 }
+        
+        let usedBytes = UInt64(info.phys_footprint)
+        return usedBytes
+        
     }
 }
 
