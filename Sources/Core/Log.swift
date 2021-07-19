@@ -98,9 +98,34 @@ public class Log: AsyncFunctions {
         }
         
     }
-    public static func infoUsedMemory(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, srcId: String, completion: (()-> Void)? = nil) {
-        let usedMemory: UInt64 = Log.shared.getUsedMemorySize()
-        Log.shared.log(logLevel: .usedMemory, file: file, function: function, line: line, thread: thread, items: ["srcId:", srcId, "usedMemory:", usedMemory, "KB","(\(usedMemory - Log.shared.previousMemory))"], completion: completion)
+    public func infoUsedMemory(file: String = #file, function: String = #function, line: Int = #line,thread: Thread = Thread.current, srcId: String, completion: (()-> Void)? = nil) {
+        async(attributes: .concurrent) {[weak self] _ in
+            guard let self = self else {return}
+            func createPrintOutString() -> String {
+                let dateTime = self.dateFormatter.string(from: newtime)
+                let itemString = items.map { String(describing: $0) }.joined(separator: " ")
+                let filename = file.split(separator: "/").dropFirst(3).joined(separator: "/")
+                let content = itemString.count == 0 ? "" : "\t\(itemString)"
+                let delta = String(describing: self.oldtime.timeIntervalSince(newtime)).prefix(6)
+                return "\n\(dateTime)(\(delta))\t\(filename) \(function)(line:\(line - 1)) \(logLevel.indicator) \(thread.isMainThread ? "MainThread": "") \(content)"
+            }
+            let usedMemory = self.getUsedMemorySize()
+            let logLevel = LogLevel.usedMemory
+            let newtime = Date()
+            let items = ["srcId:", srcId, "usedMemory:", usedMemory, "KB","(\(usedMemory - Log.shared.previousMemory))"] as [Any]
+            let printOutString = createPrintOutString()
+            print(printOutString)
+            let newLogEntity = LogEntity(date: newtime, content: printOutString)
+            self.semaphore1.wait()
+            if self.logDataTemp[logLevel] == nil {
+                self.logDataTemp[logLevel] = []
+            }
+            self.logDataTemp[logLevel]?.append(newLogEntity)
+            self.previousMemory = usedMemory
+
+            self.writeToFile(logLevel: logLevel, completion: completion)
+            self.semaphore1.signal()
+        }
 
     }
     
